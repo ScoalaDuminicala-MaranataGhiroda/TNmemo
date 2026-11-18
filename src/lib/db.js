@@ -136,6 +136,10 @@ export async function initAndFetchAllData() {
     return {
       mode: 'local',
       ...local,
+      competitors: local.competitors.map((competitor) => ({
+        ...competitor,
+        tickets: [0, 1, 2].map((index) => Boolean(competitor.tickets?.[index])),
+      })),
     };
   }
 
@@ -157,6 +161,12 @@ export async function initAndFetchAllData() {
         competitor_id TEXT NOT NULL,
         verse_key TEXT NOT NULL,
         PRIMARY KEY (competitor_id, verse_key)
+      )`,
+      `CREATE TABLE IF NOT EXISTS competitor_tickets (
+        competitor_id TEXT NOT NULL,
+        ticket_number INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (competitor_id, ticket_number)
       )`,
       `CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY,
@@ -198,18 +208,31 @@ export async function initAndFetchAllData() {
     settingsMap.admin_password = DEFAULT_ADMIN_PASSWORD;
   }
 
-  const [compRes, progRes, teamsRes, matRes] = await Promise.all([
+  const [compRes, progRes, ticketsRes, teamsRes, matRes] = await Promise.all([
     client.execute('SELECT id, name, grade, active, created_at FROM competitors ORDER BY name ASC'),
     client.execute('SELECT competitor_id, verse_key FROM progress'),
+    client.execute('SELECT competitor_id, ticket_number, active FROM competitor_tickets'),
     client.execute('SELECT id, name, mode, member_ids_json, created_at FROM teams ORDER BY id ASC'),
     client.execute('SELECT id, url, description, created_at FROM materials ORDER BY created_at DESC'),
   ]);
+
+  const ticketsByCompetitor = {};
+  for (const row of ticketsRes.rows) {
+    if (!ticketsByCompetitor[row.competitor_id]) {
+      ticketsByCompetitor[row.competitor_id] = [false, false, false];
+    }
+    const ticketIndex = Number(row.ticket_number) - 1;
+    if (ticketIndex >= 0 && ticketIndex < 3) {
+      ticketsByCompetitor[row.competitor_id][ticketIndex] = Boolean(Number(row.active));
+    }
+  }
 
   const competitors = compRes.rows.map((r) => ({
     id: String(r.id),
     name: String(r.name),
     grade: String(r.grade),
     active: Number(r.active),
+    tickets: ticketsByCompetitor[r.id] || [false, false, false],
   }));
 
   const progress = progRes.rows.map((r) => ({
@@ -331,6 +354,30 @@ export async function upsertCompetitor({ id, name, grade, active }) {
   return compId;
 }
 
+export async function saveCompetitorTicket(competitorId, ticketIndex, active) {
+  if (!client) {
+    const store = getLocalStore();
+    store.competitors = store.competitors.map((competitor) => {
+      if (competitor.id !== competitorId) return competitor;
+      const tickets = Array.isArray(competitor.tickets)
+        ? [...competitor.tickets.slice(0, 3)]
+        : [false, false, false];
+      while (tickets.length < 3) tickets.push(false);
+      tickets[ticketIndex] = active;
+      return { ...competitor, tickets };
+    });
+    saveLocalStore(store);
+    return;
+  }
+
+  await client.execute({
+    sql: `INSERT INTO competitor_tickets (competitor_id, ticket_number, active)
+          VALUES (?, ?, ?)
+          ON CONFLICT(competitor_id, ticket_number) DO UPDATE SET active = excluded.active`,
+    args: [competitorId, ticketIndex + 1, active ? 1 : 0],
+  });
+}
+
 export async function deleteCompetitor(compId) {
   if (!client) {
     const store = getLocalStore();
@@ -347,6 +394,7 @@ export async function deleteCompetitor(compId) {
     [
       { sql: 'DELETE FROM competitors WHERE id = ?', args: [compId] },
       { sql: 'DELETE FROM progress WHERE competitor_id = ?', args: [compId] },
+      { sql: 'DELETE FROM competitor_tickets WHERE competitor_id = ?', args: [compId] },
     ],
     'write'
   );

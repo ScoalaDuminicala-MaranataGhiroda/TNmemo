@@ -24,6 +24,7 @@ import {
   Shuffle,
   Sparkles,
   Sun,
+  Ticket,
   Trash2,
   Trophy,
   Upload,
@@ -45,6 +46,7 @@ import {
   deleteCompetitor,
   toggleVerseLearned,
   setBatchVersesForCompetitor,
+  saveCompetitorTicket,
   replaceAllTeams,
   addMaterialLink,
   deleteMaterialLink,
@@ -400,6 +402,20 @@ export default function App() {
         ? `${comp.name} este acum ACTIV.`
         : `${comp.name} a fost marcat INACTIV.`
     );
+  };
+
+  const handleToggleTicket = async (comp, ticketIndex) => {
+    const active = !Boolean(comp.tickets?.[ticketIndex]);
+    setCompetitors((prev) =>
+      prev.map((competitor) => {
+        if (competitor.id !== comp.id) return competitor;
+        const tickets = [0, 1, 2].map((index) => Boolean(competitor.tickets?.[index]));
+        tickets[ticketIndex] = active;
+        return { ...competitor, tickets };
+      })
+    );
+    await saveCompetitorTicket(comp.id, ticketIndex, active);
+    showToast(`${comp.name}: tichetul ${ticketIndex + 1} ${active ? 'activat' : 'dezactivat'}.`);
   };
 
   const handleDeleteCompetitor = async (comp) => {
@@ -878,6 +894,24 @@ export default function App() {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-sm">{c.name}</span>
+                            <div className="flex items-center gap-1" aria-label="Tichete concurent">
+                              {[0, 1, 2].map((ticketIndex) => (
+                                <button
+                                  key={ticketIndex}
+                                  type="button"
+                                  onClick={() => handleToggleTicket(c, ticketIndex)}
+                                  aria-label={`${c.tickets?.[ticketIndex] ? 'Dezactivează' : 'Activează'} tichetul ${ticketIndex + 1} pentru ${c.name}`}
+                                  title={`Tichet ${ticketIndex + 1}: ${c.tickets?.[ticketIndex] ? 'activ' : 'inactiv'}`}
+                                  className={`p-1 rounded-md transition hover:bg-brand-500/10 focus:outline-none focus:ring-2 focus:ring-brand-500 ${
+                                    c.tickets?.[ticketIndex]
+                                      ? 'text-brand-600 dark:text-brand-400'
+                                      : 'text-slate-300 dark:text-slate-600'
+                                  }`}
+                                >
+                                  <Ticket className="w-4 h-4" />
+                                </button>
+                              ))}
+                            </div>
                             <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-brand-950 border border-slate-200 dark:border-brand-800/60">
                               {c.grade}
                             </span>
@@ -1456,6 +1490,19 @@ export default function App() {
                     <span className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
                       {c.name}
                     </span>
+                    <div className="flex items-center gap-1" aria-label="Tichete concurent">
+                      {[0, 1, 2].map((ticketIndex) => (
+                        <Ticket
+                          key={ticketIndex}
+                          aria-label={`Tichet ${ticketIndex + 1} ${c.tickets?.[ticketIndex] ? 'activ' : 'inactiv'}`}
+                          className={`w-4 h-4 ${
+                            c.tickets?.[ticketIndex]
+                              ? 'text-brand-600 dark:text-brand-400'
+                              : 'text-slate-300 dark:text-slate-600'
+                          }`}
+                        />
+                      ))}
+                    </div>
                     <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-[#061612] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-brand-900/60 font-medium">
                       {c.grade}
                     </span>
